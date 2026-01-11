@@ -1,0 +1,29 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Neovim
+*.swp
+*.swo
+*~
+.nvim/
+
+# Lua
+luac.out
+
+# Testing
+test/
+.tests/
+*.log
+
+# Build
+build/
+dist/
+
+# IDE
+.vscode/
+.idea/
+*.sublime-*
+
+# Git
+*.orig
