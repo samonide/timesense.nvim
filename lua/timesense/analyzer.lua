@@ -87,8 +87,8 @@ local function analyze_loop_line(line)
   end
   
   -- Bitwise optimization: i = i & (i-1) for counting set bits
-  if line:match("[%w_]+%s*&=%s*%(.-%-.-%)" or line:match("[%w_]+%s*=%s*[%w_]+%s*&%s*%(.-%-.-%)")
-  then
+  if line:match("[%w_]+%s*&=%s*%(.-%-.-%)") or 
+     line:match("[%w_]+%s*=%s*[%w_]+%s*&%s*%(.-%-.-%)") then
     return "O(log n)"
   end
   
