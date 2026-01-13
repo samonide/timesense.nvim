@@ -56,7 +56,7 @@ See [USAGE.md](USAGE.md) for detailed documentation.
 
 ## Disclaimer
 
-This project used AI assistance (GitHub Copilot) for code comments, documentation, and development guidance.
+This project used AI assistance for code comments and documentation.
 
 ## License
 
