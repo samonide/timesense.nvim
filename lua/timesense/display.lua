@@ -45,6 +45,7 @@ end
 local function display_overall(bufnr, time_complexity, space_complexity, config)
   local lines = vim.api.nvim_buf_get_lines(bufnr, 0, 100, false)
   local target_line = 0
+  local found_include = false
   
   -- Find a good place to show overall complexity
   -- Prioritize: #include, using namespace, function definitions, or first non-comment line
@@ -53,19 +54,29 @@ local function display_overall(bufnr, time_complexity, space_complexity, config)
     
     -- Skip empty lines and pure comment lines
     if trimmed ~= "" and not trimmed:match("^//") and not trimmed:match("^/%*") then
-      if line:match("^#include") or 
-         line:match("^#define") or
-         line:match("^using namespace") or
-         line:match("int main%(") or
-         line:match("void main%(") or
-         line:match("void solve%(") or
-         line:match("int solve%(") or
-         line:match("class%s+%w+") or
-         line:match("struct%s+%w+") then
+      -- Check for #include (with or without leading whitespace)
+      if trimmed:match("^#%s*include") then
+        target_line = i - 1
+        found_include = true
+        break
+      end
+      
+      -- Check for other header-like patterns
+      if not found_include and (
+         trimmed:match("^#%s*define") or
+         trimmed:match("^using%s+namespace") or
+         trimmed:match("int%s+main%s*%(") or
+         trimmed:match("void%s+main%s*%(") or
+         trimmed:match("void%s+solve%s*%(") or
+         trimmed:match("int%s+solve%s*%(") or
+         trimmed:match("^class%s+%w+") or
+         trimmed:match("^struct%s+%w+")) then
         target_line = i - 1
         break
-      elseif target_line == 0 then
-        -- First non-empty, non-comment line as fallback
+      end
+      
+      -- Fallback: first non-empty, non-comment line
+      if target_line == 0 then
         target_line = i - 1
       end
     end
