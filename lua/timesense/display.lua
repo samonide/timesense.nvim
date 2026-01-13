@@ -2,6 +2,19 @@
 
 local M = {}
 
+-- Constants
+local DISPLAY_CONSTANTS = {
+  HEADER_SCAN_LIMIT = 100,
+  PRIORITY_OVERALL = 1000,
+  PRIORITY_FUNCTION = 900,
+  PRIORITY_OPERATION = 100,
+}
+
+local HIGHLIGHT_GROUPS = {
+  OVERALL = "DiagnosticInfo",
+  FUNCTION = "DiagnosticHint",
+}
+
 -- Namespace for extmarks
 M.namespace = vim.api.nvim_create_namespace("timesense")
 
@@ -19,26 +32,26 @@ local function format_complexity(complexity, config)
   return string.format("%s %s", config.virtual_text_icon, complexity)
 end
 
+-- Create extmark with given text and styling
+local function create_extmark(bufnr, namespace, line, text, hl_group, priority)
+  vim.api.nvim_buf_set_extmark(bufnr, namespace, line, 0, {
+    virt_text = { { text, hl_group } },
+    virt_text_pos = "eol",
+    hl_mode = "combine",
+    priority = priority or DISPLAY_CONSTANTS.PRIORITY_OPERATION,
+  })
+end
+
 -- Display loop complexity
 local function display_loop(bufnr, loop_info, config)
   local text = format_complexity(loop_info.complexity, config)
-  
-  vim.api.nvim_buf_set_extmark(bufnr, M.namespace, loop_info.line - 1, 0, {
-    virt_text = { { text, config.virtual_text_hl_group } },
-    virt_text_pos = "eol",
-    hl_mode = "combine",
-  })
+  create_extmark(bufnr, M.namespace, loop_info.line - 1, text, config.virtual_text_hl_group)
 end
 
 -- Display function call complexity
 local function display_function_call(bufnr, call_info, config)
   local text = format_complexity(call_info.complexity, config)
-  
-  vim.api.nvim_buf_set_extmark(bufnr, M.namespace, call_info.line - 1, 0, {
-    virt_text = { { text, config.virtual_text_hl_group } },
-    virt_text_pos = "eol",
-    hl_mode = "combine",
-  })
+  create_extmark(bufnr, M.namespace, call_info.line - 1, text, config.virtual_text_hl_group)
 end
 
 -- Display per-function complexity summary
@@ -49,45 +62,55 @@ local function display_function_summary(bufnr, func_info, config)
     func_info.time_complexity,
     func_info.space_complexity
   )
-  
-  vim.api.nvim_buf_set_extmark(bufnr, M.namespace, func_info.line - 1, 0, {
-    virt_text = { { text, "DiagnosticHint" } },
-    virt_text_pos = "eol",
-    hl_mode = "combine",
-    priority = 900, -- Lower than overall but higher than individual operations
-  })
+  create_extmark(bufnr, M.namespace, func_info.line - 1, text, 
+                 HIGHLIGHT_GROUPS.FUNCTION, DISPLAY_CONSTANTS.PRIORITY_FUNCTION)
 end
 
--- Display overall complexity near top of file
-local function display_overall(bufnr, time_complexity, space_complexity, config)
-  local lines = vim.api.nvim_buf_get_lines(bufnr, 0, 100, false)
+-- Check if line is a comment or empty
+local function is_comment_or_empty(trimmed)
+  return trimmed == "" or trimmed:match("^//") or trimmed:match("^/%*")
+end
+
+-- Check if line is an include directive
+local function is_include_line(trimmed)
+  return trimmed:match("^#%s*include") ~= nil
+end
+
+-- Check if line is a header-like pattern (define, using, main, etc.)
+local function is_header_pattern(trimmed)
+  local patterns = {
+    "^#%s*define",
+    "^using%s+namespace",
+    "int%s+main%s*%(",
+    "void%s+main%s*%(",
+    "void%s+solve%s*%(",
+    "int%s+solve%s*%(",
+    "^class%s+%w+",
+    "^struct%s+%w+"
+  }
+  
+  for _, pattern in ipairs(patterns) do
+    if trimmed:match(pattern) then return true end
+  end
+  return false
+end
+
+-- Find the best line to display overall complexity
+local function find_display_line(lines)
   local target_line = 0
   local found_include = false
   
-  -- Find a good place to show overall complexity
-  -- Prioritize: #include, using namespace, function definitions, or first non-comment line
   for i, line in ipairs(lines) do
     local trimmed = line:match("^%s*(.-)%s*$")
     
-    -- Skip empty lines and pure comment lines
-    if trimmed ~= "" and not trimmed:match("^//") and not trimmed:match("^/%*") then
-      -- Check for #include (with or without leading whitespace)
-      if trimmed:match("^#%s*include") then
-        target_line = i - 1
-        found_include = true
-        break
+    if not is_comment_or_empty(trimmed) then
+      -- Prioritize #include directives
+      if is_include_line(trimmed) then
+        return i - 1
       end
       
-      -- Check for other header-like patterns
-      if not found_include and (
-         trimmed:match("^#%s*define") or
-         trimmed:match("^using%s+namespace") or
-         trimmed:match("int%s+main%s*%(") or
-         trimmed:match("void%s+main%s*%(") or
-         trimmed:match("void%s+solve%s*%(") or
-         trimmed:match("int%s+solve%s*%(") or
-         trimmed:match("^class%s+%w+") or
-         trimmed:match("^struct%s+%w+")) then
+      -- Check for other header patterns
+      if not found_include and is_header_pattern(trimmed) then
         target_line = i - 1
         break
       end
@@ -99,7 +122,14 @@ local function display_overall(bufnr, time_complexity, space_complexity, config)
     end
   end
   
-  -- Format overall text
+  return target_line
+end
+
+-- Display overall complexity near top of file
+local function display_overall(bufnr, time_complexity, space_complexity, config)
+  local lines = vim.api.nvim_buf_get_lines(bufnr, 0, DISPLAY_CONSTANTS.HEADER_SCAN_LIMIT, false)
+  local target_line = find_display_line(lines)
+  
   local overall_text = string.format(
     "%s Time: %s | Space: %s",
     config.virtual_text_icon,
@@ -107,12 +137,8 @@ local function display_overall(bufnr, time_complexity, space_complexity, config)
     space_complexity
   )
   
-  vim.api.nvim_buf_set_extmark(bufnr, M.namespace, target_line, 0, {
-    virt_text = { { overall_text, "DiagnosticInfo" } },
-    virt_text_pos = "eol",
-    hl_mode = "combine",
-    priority = 1000, -- Higher priority for overall
-  })
+  create_extmark(bufnr, M.namespace, target_line, overall_text, 
+                 HIGHLIGHT_GROUPS.OVERALL, DISPLAY_CONSTANTS.PRIORITY_OVERALL)
 end
 
 -- Display all analysis results

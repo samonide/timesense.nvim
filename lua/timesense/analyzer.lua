@@ -2,74 +2,103 @@
 
 local M = {}
 
+-- Constants
+local CONSTANTS = {
+  DEFAULT_COMPLEXITY = "O(1)",
+  DEFAULT_RANK = 100,
+  HEADER_SCAN_LINES = 100,
+  BRACE_OPEN = "{",
+  BRACE_CLOSE = "}",
+}
+
+-- Pattern matchers for control structures
+local CONTROL_PATTERNS = {
+  IF = "^if%s*%(",
+  WHILE = "^while%s*%(",
+  FOR = "^for%s*%(",
+  DO = "^do%s*",
+  SWITCH = "^switch%s*%(",
+}
+
 -- Complexity class for easier manipulation
 local Complexity = {}
 Complexity.__index = Complexity
 
 function Complexity.new(time, space, description)
   return setmetatable({
-    time = time or "O(1)",
-    space = space or "O(1)",
+    time = time or CONSTANTS.DEFAULT_COMPLEXITY,
+    space = space or CONSTANTS.DEFAULT_COMPLEXITY,
     description = description or "",
   }, Complexity)
 end
 
--- Compare two complexity strings and return the dominant one
-local function get_dominant_complexity(c1, c2)
-  -- Complexity hierarchy (from lowest to highest)
-  local hierarchy = {
-    ["O(1)"] = 1,
-    ["O(α(n))"] = 2,  -- Union-Find amortized
-    ["O(log n)"] = 3,
-    ["O(log² n)"] = 4,
-    ["O(√n)"] = 5,
-    ["O(L)"] = 6,  -- Trie operations (length of string)
-    ["O(n)"] = 7,
-    ["O(n log n)"] = 8,
-    ["O(n log log n)"] = 9,  -- Sieve
-    ["O(n√n)"] = 10,
-    ["O(n²)"] = 11,
-    ["O(n² log n)"] = 12,
-    ["O(n³)"] = 13,
-    ["O(V+E)"] = 14,  -- Graph traversal
-    ["O(V×E)"] = 15,  -- Bellman-Ford
-    ["O(E log V)"] = 16,  -- Dijkstra
-    ["O(2^n)"] = 17,
-    ["O(n!)"] = 18,
-  }
+-- Complexity hierarchy (from lowest to highest)
+local COMPLEXITY_HIERARCHY = {
+  ["O(1)"] = 1,
+  ["O(α(n))"] = 2,        -- Union-Find amortized
+  ["O(log n)"] = 3,
+  ["O(log² n)"] = 4,
+  ["O(√n)"] = 5,
+  ["O(L)"] = 6,           -- Trie operations
+  ["O(n)"] = 7,
+  ["O(n log n)"] = 8,
+  ["O(n log log n)"] = 9, -- Sieve
+  ["O(n√n)"] = 10,
+  ["O(n²)"] = 11,
+  ["O(n² log n)"] = 12,
+  ["O(n³)"] = 13,
+  ["O(V+E)"] = 14,        -- Graph traversal
+  ["O(V×E)"] = 15,        -- Bellman-Ford
+  ["O(E log V)"] = 16,    -- Dijkstra
+  ["O(2^n)"] = 17,
+  ["O(n!)"] = 18,
+}
+
+-- Compare two complexity strings and return the dominant (higher) one
+local function get_dominant_complexity(complexity1, complexity2)
+  local rank1 = COMPLEXITY_HIERARCHY[complexity1] or CONSTANTS.DEFAULT_RANK
+  local rank2 = COMPLEXITY_HIERARCHY[complexity2] or CONSTANTS.DEFAULT_RANK
   
-  local rank1 = hierarchy[c1] or 100
-  local rank2 = hierarchy[c2] or 100
-  
-  return rank1 >= rank2 and c1 or c2
+  return rank1 >= rank2 and complexity1 or complexity2
 end
 
--- Multiply two complexity strings (for nested loops)
-local function multiply_complexity(c1, c2)
-  -- Simple heuristic multiplication
-  -- O(1) * anything = anything
-  if c1 == "O(1)" then return c2 end
-  if c2 == "O(1)" then return c1 end
+-- Multiplication lookup table for common complexity combinations
+local COMPLEXITY_MULTIPLICATION = {
+  ["n|n"] = "O(n²)",
+  ["n|log n"] = "O(n log n)",
+  ["log n|n"] = "O(n log n)",
+  ["n|n log n"] = "O(n² log n)",
+  ["n log n|n"] = "O(n² log n)",
+  ["n²|n"] = "O(n³)",
+  ["n|n²"] = "O(n³)",
+  ["log n|log n"] = "O(log² n)",
+  ["√n|n"] = "O(n√n)",
+  ["n|√n"] = "O(n√n)",
+}
+
+-- Extract inner complexity from O(...) notation
+local function extract_inner_complexity(complexity)
+  return complexity:match("O%((.+)%)")
+end
+
+-- Multiply two complexity strings (for nested operations)
+local function multiply_complexity(complexity1, complexity2)
+  -- O(1) is identity for multiplication
+  if complexity1 == CONSTANTS.DEFAULT_COMPLEXITY then return complexity2 end
+  if complexity2 == CONSTANTS.DEFAULT_COMPLEXITY then return complexity1 end
   
-  -- Extract the inner part
-  local inner1 = c1:match("O%((.+)%)")
-  local inner2 = c2:match("O%((.+)%)")
+  local inner1 = extract_inner_complexity(complexity1)
+  local inner2 = extract_inner_complexity(complexity2)
   
   if not inner1 or not inner2 then return "O(n²)" end
   
-  -- Common patterns
-  if inner1 == "n" and inner2 == "n" then return "O(n²)" end
-  if inner1 == "n" and inner2 == "log n" then return "O(n log n)" end
-  if inner1 == "log n" and inner2 == "n" then return "O(n log n)" end
-  if inner1 == "n" and inner2 == "n log n" then return "O(n² log n)" end
-  if inner1 == "n log n" and inner2 == "n" then return "O(n² log n)" end
-  if inner1 == "n²" and inner2 == "n" then return "O(n³)" end
-  if inner1 == "n" and inner2 == "n²" then return "O(n³)" end
-  if inner1 == "log n" and inner2 == "log n" then return "O(log² n)" end
-  if inner1 == "√n" and inner2 == "n" then return "O(n√n)" end
-  if inner1 == "n" and inner2 == "√n" then return "O(n√n)" end
+  -- Check multiplication lookup table
+  local key = inner1 .. "|" .. inner2
+  if COMPLEXITY_MULTIPLICATION[key] then
+    return COMPLEXITY_MULTIPLICATION[key]
+  end
   
-  -- Default to squared
+  -- Default: show as multiplication
   return "O(" .. inner1 .. " × " .. inner2 .. ")"
 end
 
@@ -111,31 +140,31 @@ local function analyze_loop_line(line)
   return "O(n)"
 end
 
--- Analyze for loop complexity
+-- Analyze for loop complexity from its structure
 local function analyze_for_loop(line)
-  -- Range-based for loop: for(auto x : container) or for(int x : arr)
-  if line:match("for%s*%(.-%s*:%s*.-%)") then
+  -- Range-based for loop: for(auto x : container)
+  if line:match("for%s*%(.-%s*:%s*.-%)" then
     return "O(n)"
   end
   
-  -- Pattern: for (init; condition; increment)
-  local init, cond, incr = line:match("for%s*%((.-)%;(.-)%;(.-)%)")
+  -- Traditional for loop: for (init; condition; increment)
+  local _, _, increment = line:match("for%s*%((.-)%;(.-)%;(.-)%)")
   
-  if incr then
-    return analyze_loop_line(incr)
+  if increment then
+    return analyze_loop_increment(increment)
   end
   
-  return "O(n)"
+  return "O(n)"  -- Default assumption
 end
 
--- Analyze while loop complexity
+-- Analyze while loop complexity from its condition
 local function analyze_while_loop(line)
-  -- Try to detect common patterns in condition
+  -- Detect multiplication/division patterns in condition
   if line:match("while%s*%(.*[*/].*%)") then
     return "O(log n)"
   end
   
-  return "O(n)"
+  return "O(n)"  -- Default assumption
 end
 
 -- Detect standard library function complexities
