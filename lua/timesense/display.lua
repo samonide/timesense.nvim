@@ -41,6 +41,23 @@ local function display_function_call(bufnr, call_info, config)
   })
 end
 
+-- Display per-function complexity summary
+local function display_function_summary(bufnr, func_info, config)
+  local text = string.format(
+    "%s Time: %s | Space: %s",
+    config.virtual_text_icon,
+    func_info.time_complexity,
+    func_info.space_complexity
+  )
+  
+  vim.api.nvim_buf_set_extmark(bufnr, M.namespace, func_info.line - 1, 0, {
+    virt_text = { { text, "DiagnosticHint" } },
+    virt_text_pos = "eol",
+    hl_mode = "combine",
+    priority = 900, -- Lower than overall but higher than individual operations
+  })
+end
+
 -- Display overall complexity near top of file
 local function display_overall(bufnr, time_complexity, space_complexity, config)
   local lines = vim.api.nvim_buf_get_lines(bufnr, 0, 100, false)
@@ -112,6 +129,11 @@ function M.display(bufnr, analysis_results)
   
   -- Display overall complexity
   display_overall(bufnr, analysis_results.overall_time, analysis_results.space, config)
+  
+  -- Display per-function complexity summaries
+  for _, func_info in ipairs(analysis_results.functions or {}) do
+    display_function_summary(bufnr, func_info, config)
+  end
   
   -- Display loop complexities
   for _, loop_info in ipairs(analysis_results.loops) do

@@ -383,10 +383,16 @@ function M.analyze(bufnr)
     space = "O(1)",      -- Overall space complexity
     space_items = {},    -- Individual space allocations
     overall_time = "O(1)", -- Overall time complexity
+    functions = {},      -- Per-function complexity summaries
   }
   
   -- Track nesting level and current context
   local nesting_stack = {}
+  local brace_depth = 0
+  
+  -- Track current function
+  local current_function = nil
+  local function_stack = {}
   
   -- Analyze space first
   results.space, results.space_items = analyze_space(lines)
@@ -394,6 +400,44 @@ function M.analyze(bufnr)
   -- Analyze time complexity
   for i, line in ipairs(lines) do
     local trimmed = line:match("^%s*(.-)%s*$")
+    
+    -- Track opening braces for scope depth
+    local open_braces = 0
+    local close_braces = 0
+    for c in line:gmatch(".") do
+      if c == "{" then open_braces = open_braces + 1 end
+      if c == "}" then close_braces = close_braces + 1 end
+    end
+    
+    -- Detect function definitions
+    local func_match = trimmed:match("^([%w_]+)%s+([%w_]+)%s*%(") or 
+                       trimmed:match("^(void)%s+([%w_]+)%s*%(") or
+                       trimmed:match("^(int)%s+([%w_]+)%s*%(") or
+                       trimmed:match("^(bool)%s+([%w_]+)%s*%(") or
+                       trimmed:match("^(long%s+long)%s+([%w_]+)%s*%(")
+    
+    if func_match and not trimmed:match("^if%s*%(") and not trimmed:match("^while%s*%(") and 
+       not trimmed:match("^for%s*%(") and not trimmed:match("^switch%s*%(") then
+      -- Extract function name (second capture group)
+      local func_name = trimmed:match("^[%w_]+%s+([%w_]+)%s*%(") or
+                        trimmed:match("^void%s+([%w_]+)%s*%(") or
+                        trimmed:match("^int%s+([%w_]+)%s*%(") or
+                        trimmed:match("^bool%s+([%w_]+)%s*%(") or
+                        trimmed:match("^long%s+long%s+([%w_]+)%s*%(")
+      
+      if func_name and func_name ~= "if" and func_name ~= "while" and 
+         func_name ~= "for" and func_name ~= "switch" then
+        -- Start tracking new function
+        current_function = {
+          name = func_name,
+          line = i,
+          time_complexity = "O(1)",
+          space_complexity = "O(1)",
+          start_depth = brace_depth + open_braces,
+        }
+        table.insert(function_stack, current_function)
+      end
+    end
     
     -- Skip comments and empty lines
     if not trimmed:match("^//") and not trimmed:match("^%s*$") then
@@ -433,6 +477,11 @@ function M.analyze(bufnr)
         -- Update overall time complexity - compare and take dominant
         if effective ~= "O(1)" then
           results.overall_time = get_dominant_complexity(results.overall_time, effective)
+          -- Update current function complexity
+          if current_function then
+            current_function.time_complexity = get_dominant_complexity(
+              current_function.time_complexity, effective)
+          end
         end
       end
       
@@ -463,9 +512,40 @@ function M.analyze(bufnr)
         -- Update overall time complexity with effective function call complexity
         if effective_call_complexity ~= "O(1)" then
           results.overall_time = get_dominant_complexity(results.overall_time, effective_call_complexity)
+          -- Update current function complexity
+          if current_function then
+            current_function.time_complexity = get_dominant_complexity(
+              current_function.time_complexity, effective_call_complexity)
+          end
         end
       end
     end
+    
+    -- Update brace depth
+    brace_depth = brace_depth + open_braces - close_braces
+    
+    -- Check if we're exiting a function
+    if current_function and brace_depth < current_function.start_depth then
+      -- Function ended, save it to results
+      table.insert(results.functions, {
+        name = current_function.name,
+        line = current_function.line,
+        time_complexity = current_function.time_complexity,
+        space_complexity = current_function.space_complexity,
+      })
+      table.remove(function_stack)
+      current_function = function_stack[#function_stack]
+    end
+  end
+  
+  -- Add any remaining functions
+  for _, func in ipairs(function_stack) do
+    table.insert(results.functions, {
+      name = func.name,
+      line = func.line,
+      time_complexity = func.time_complexity,
+      space_complexity = func.space_complexity,
+    })
   end
   
   return results
