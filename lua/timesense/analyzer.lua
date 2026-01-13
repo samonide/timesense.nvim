@@ -102,42 +102,50 @@ local function multiply_complexity(complexity1, complexity2)
   return "O(" .. inner1 .. " × " .. inner2 .. ")"
 end
 
--- Analyze a single loop line
-local function analyze_loop_line(line)
-  -- Check for log complexity patterns
-  -- i *= 2, i /= 2, i <<= 1, i >>= 1, i = i * 2, i = i / 2
-  if line:match("[%w_]+%s*%*=%s*2") or 
-     line:match("[%w_]+%s*/=%s*2") or
-     line:match("[%w_]+%s*<<=%s*%d+") or
-     line:match("[%w_]+%s*>>=%s*%d+") or
-     line:match("[%w_]+%s*=%s*[%w_]+%s*%*%s*2") or
-     line:match("[%w_]+%s*=%s*[%w_]+%s*/%s*2") then
+-- Check if line contains logarithmic increment pattern
+local function is_logarithmic_pattern(line)
+  local log_patterns = {
+    "[%w_]+%s*%*=%s*2",              -- i *= 2
+    "[%w_]+%s*/=%s*2",               -- i /= 2  
+    "[%w_]+%s*<<=%s*%d+",            -- i <<= 1
+    "[%w_]+%s*>>=%s*%d+",            -- i >>= 1
+    "[%w_]+%s*=%s*[%w_]+%s*%*%s*2", -- i = i * 2
+    "[%w_]+%s*=%s*[%w_]+%s*/%s*2",  -- i = i / 2
+    "[%w_]+%s*&=%s*%(.-%-.-%)%",     -- i &= (i-1)
+    "[%w_]+%s*=%s*[%w_]+%s*&%s*%(.-%-.-%)%" -- i = i & (i-1)
+  }
+  
+  for _, pattern in ipairs(log_patterns) do
+    if line:match(pattern) then return true end
+  end
+  return false
+end
+
+-- Check if line contains square root pattern
+local function is_sqrt_pattern(line)
+  return line:match("[%w_]+%s*%*%s*[%w_]+%s*[<>]=?%s*[%w_]+") or
+         line:match("sqrt%s*%(")
+end
+
+-- Detect complexity pattern from loop increment/condition
+local function analyze_loop_increment(increment_line)
+  if is_logarithmic_pattern(increment_line) then
     return "O(log n)"
   end
   
-  -- Bitwise optimization: i = i & (i-1) for counting set bits
-  if line:match("[%w_]+%s*&=%s*%(.-%-.-%)") or 
-     line:match("[%w_]+%s*=%s*[%w_]+%s*&%s*%(.-%-.-%)") then
-    return "O(log n)"
-  end
-  
-  -- Check for sqrt patterns
-  -- i * i < n, i * i <= n, i <= sqrt(n)
-  if line:match("[%w_]+%s*%*%s*[%w_]+%s*[<>]=?%s*[%w_]+") or
-     line:match("sqrt%s*%(") then
+  if is_sqrt_pattern(increment_line) then
     return "O(√n)"
   end
   
   -- Check for i += i patterns (also log)
-  if line:match("[%w_]+%s*%+=%s*[%w_]+") then
-    local var = line:match("([%w_]+)%s*%+=")
-    if var and line:match(var .. "%s*%+=%s*" .. var) then
+  if increment_line:match("[%w_]+%s*%+=%s*[%w_]+") then
+    local var = increment_line:match("([%w_]+)%s*%+=")
+    if var and increment_line:match(var .. "%s*%+=%s*" .. var) then
       return "O(log n)"
     end
   end
   
-  -- Default: linear
-  return "O(n)"
+  return "O(n)"  -- Default: linear
 end
 
 -- Analyze for loop complexity from its structure
