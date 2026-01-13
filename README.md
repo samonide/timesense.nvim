@@ -4,10 +4,26 @@ Complexity analyzer and coding stats tracker for competitive programming.
 
 ## Features
 
-- Inline complexity hints (`🧠 O(n)`, `🧠 O(n²)`)
-- Coding time and language statistics dashboard
-- STL function detection (sort, binary_search, etc.)
-- Zero dependencies, fully offline
+- **Inline complexity hints** - Displays time/space complexity on every loop and function call
+- **Overall complexity summary** - Shows `Time: O(n log n) | Space: O(n)` at the top of your file
+- **Comprehensive pattern detection** - 50+ STL functions, graph algorithms, data structures
+- **Nested operation support** - Correctly handles sort inside loops, multiple nested structures
+- **Coding statistics** - Track time spent coding by language
+- **Zero dependencies** - Fully offline, no external tools required
+
+## Supported Patterns
+
+### Time Complexity Detection
+- **Loops**: for, while, do-while, range-based for
+- **STL Functions**: sort, binary_search, lower_bound, set/map operations, heap operations, and 40+ more
+- **Algorithms**: DFS/BFS, Dijkstra, Floyd-Warshall, DSU, Segment Trees, KMP, Sieve
+- **Optimizations**: Bitwise patterns (i & (i-1)), logarithmic loops, sqrt loops
+
+### Space Complexity Detection
+- Arrays, vectors, sets, maps, unordered containers
+- 2D structures and DP tables
+- Graph adjacency lists
+- Segment/Fenwick trees, DSU arrays
 
 ## Installation
 

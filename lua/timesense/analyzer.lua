@@ -14,6 +14,36 @@ function Complexity.new(time, space, description)
   }, Complexity)
 end
 
+-- Compare two complexity strings and return the dominant one
+local function get_dominant_complexity(c1, c2)
+  -- Complexity hierarchy (from lowest to highest)
+  local hierarchy = {
+    ["O(1)"] = 1,
+    ["O(α(n))"] = 2,  -- Union-Find amortized
+    ["O(log n)"] = 3,
+    ["O(log² n)"] = 4,
+    ["O(√n)"] = 5,
+    ["O(L)"] = 6,  -- Trie operations (length of string)
+    ["O(n)"] = 7,
+    ["O(n log n)"] = 8,
+    ["O(n log log n)"] = 9,  -- Sieve
+    ["O(n√n)"] = 10,
+    ["O(n²)"] = 11,
+    ["O(n² log n)"] = 12,
+    ["O(n³)"] = 13,
+    ["O(V+E)"] = 14,  -- Graph traversal
+    ["O(V×E)"] = 15,  -- Bellman-Ford
+    ["O(E log V)"] = 16,  -- Dijkstra
+    ["O(2^n)"] = 17,
+    ["O(n!)"] = 18,
+  }
+  
+  local rank1 = hierarchy[c1] or 100
+  local rank2 = hierarchy[c2] or 100
+  
+  return rank1 >= rank2 and c1 or c2
+end
+
 -- Multiply two complexity strings (for nested loops)
 local function multiply_complexity(c1, c2)
   -- Simple heuristic multiplication
@@ -31,8 +61,13 @@ local function multiply_complexity(c1, c2)
   if inner1 == "n" and inner2 == "n" then return "O(n²)" end
   if inner1 == "n" and inner2 == "log n" then return "O(n log n)" end
   if inner1 == "log n" and inner2 == "n" then return "O(n log n)" end
+  if inner1 == "n" and inner2 == "n log n" then return "O(n² log n)" end
+  if inner1 == "n log n" and inner2 == "n" then return "O(n² log n)" end
   if inner1 == "n²" and inner2 == "n" then return "O(n³)" end
   if inner1 == "n" and inner2 == "n²" then return "O(n³)" end
+  if inner1 == "log n" and inner2 == "log n" then return "O(log² n)" end
+  if inner1 == "√n" and inner2 == "n" then return "O(n√n)" end
+  if inner1 == "n" and inner2 == "√n" then return "O(n√n)" end
   
   -- Default to squared
   return "O(" .. inner1 .. " × " .. inner2 .. ")"
@@ -42,18 +77,34 @@ end
 local function analyze_loop_line(line)
   -- Check for log complexity patterns
   -- i *= 2, i /= 2, i <<= 1, i >>= 1, i = i * 2, i = i / 2
-  if line:match("[%w_]+%s*[*%%]=%s*2") or 
+  if line:match("[%w_]+%s*%*=%s*2") or 
      line:match("[%w_]+%s*/=%s*2") or
-     line:match("[%w_]+%s*<<=") or
-     line:match("[%w_]+%s*>>=") or
-     line:match("[%w_]+%s*=%s*[%w_]+%s*[*/]%s*2") then
+     line:match("[%w_]+%s*<<=%s*%d+") or
+     line:match("[%w_]+%s*>>=%s*%d+") or
+     line:match("[%w_]+%s*=%s*[%w_]+%s*%*%s*2") or
+     line:match("[%w_]+%s*=%s*[%w_]+%s*/%s*2") then
+    return "O(log n)"
+  end
+  
+  -- Bitwise optimization: i = i & (i-1) for counting set bits
+  if line:match("[%w_]+%s*&=%s*%(.-%-.-%)" or line:match("[%w_]+%s*=%s*[%w_]+%s*&%s*%(.-%-.-%)")
+  then
     return "O(log n)"
   end
   
   -- Check for sqrt patterns
-  -- i * i < n, i * i <= n
-  if line:match("[%w_]+%s*%*%s*[%w_]+%s*[<>]=?%s*[%w_]+") then
+  -- i * i < n, i * i <= n, i <= sqrt(n)
+  if line:match("[%w_]+%s*%*%s*[%w_]+%s*[<>]=?%s*[%w_]+") or
+     line:match("sqrt%s*%(") then
     return "O(√n)"
+  end
+  
+  -- Check for i += i patterns (also log)
+  if line:match("[%w_]+%s*%+=%s*[%w_]+") then
+    local var = line:match("([%w_]+)%s*%+=")
+    if var and line:match(var .. "%s*%+=%s*" .. var) then
+      return "O(log n)"
+    end
   end
   
   -- Default: linear
@@ -62,6 +113,11 @@ end
 
 -- Analyze for loop complexity
 local function analyze_for_loop(line)
+  -- Range-based for loop: for(auto x : container) or for(int x : arr)
+  if line:match("for%s*%(.-%s*:%s*.-%)") then
+    return "O(n)"
+  end
+  
   -- Pattern: for (init; condition; increment)
   local init, cond, incr = line:match("for%s*%((.-)%;(.-)%;(.-)%)")
   
@@ -84,28 +140,167 @@ end
 
 -- Detect standard library function complexities
 local function analyze_function_call(line)
-  -- sort() -> O(n log n)
-  if line:match("sort%s*%(") then
+  -- sort(), stable_sort() -> O(n log n)
+  if line:match("sort%s*%(") or line:match("stable_sort%s*%(") then
     return { time = "O(n log n)", is_call = true }
   end
   
-  -- binary_search, lower_bound, upper_bound -> O(log n)
+  -- binary_search, lower_bound, upper_bound, equal_range -> O(log n)
   if line:match("binary_search%s*%(") or 
      line:match("lower_bound%s*%(") or
-     line:match("upper_bound%s*%(") then
+     line:match("upper_bound%s*%(") or
+     line:match("equal_range%s*%(") then
     return { time = "O(log n)", is_call = true }
   end
   
-  -- next_permutation, prev_permutation -> O(n)
+  -- next_permutation, prev_permutation, reverse, fill, copy, move -> O(n)
   if line:match("next_permutation%s*%(") or 
-     line:match("prev_permutation%s*%(") then
+     line:match("prev_permutation%s*%(") or
+     line:match("reverse%s*%(") or
+     line:match("fill%s*%(") or
+     line:match("copy%s*%(") or
+     line:match("move%s*%(") or
+     line:match("swap%s*%(") or
+     line:match("rotate%s*%(") or
+     line:match("unique%s*%(") or
+     line:match("remove%s*%(") or
+     line:match("find%s*%(") or
+     line:match("count%s*%(") or
+     line:match("accumulate%s*%(") then
     return { time = "O(n)", is_call = true }
   end
   
-  -- reverse, fill -> O(n)
-  if line:match("reverse%s*%(") or 
-     line:match("fill%s*%(") then
+  -- nth_element, partition -> O(n) average
+  if line:match("nth_element%s*%(") or
+     line:match("partition%s*%(") then
     return { time = "O(n)", is_call = true }
+  end
+  
+  -- set_union, set_intersection, set_difference -> O(n)
+  if line:match("set_union%s*%(") or
+     line:match("set_intersection%s*%(") or
+     line:match("set_difference%s*%(") then
+    return { time = "O(n)", is_call = true }
+  end
+  
+  -- make_heap, push_heap, pop_heap -> O(log n)
+  if line:match("push_heap%s*%(") or
+     line:match("pop_heap%s*%(") then
+    return { time = "O(log n)", is_call = true }
+  end
+  
+  -- make_heap, sort_heap -> O(n log n)
+  if line:match("make_heap%s*%(") or
+     line:match("sort_heap%s*%(") then
+    return { time = "O(n log n)", is_call = true }
+  end
+  
+  -- __gcd, gcd -> O(log n)
+  if line:match("__gcd%s*%(") or line:match("gcd%s*%(") then
+    return { time = "O(log n)", is_call = true }
+  end
+  
+  -- priority_queue/set/map operations: insert, erase, find -> O(log n)
+  if line:match("%.insert%s*%(") or 
+     line:match("%.erase%s*%(") or
+     line:match("%.find%s*%(") or
+     line:match("%.count%s*%(") or
+     line:match("%.lower_bound%s*%(") or
+     line:match("%.upper_bound%s*%(") then
+    return { time = "O(log n)", is_call = true }
+  end
+  
+  -- Unordered map/set operations: insert, find, erase -> O(1) average
+  if line:match("unordered_") and (line:match("%.insert%s*%(") or 
+     line:match("%.find%s*%(") or line:match("%.erase%s*%(")
+  ) then
+    return { time = "O(1)", is_call = true }
+  end
+  
+  -- String operations
+  if line:match("%.substr%s*%(") or
+     line:match("%.find%s*%(") and line:match("string") or
+     line:match("%.compare%s*%(") then
+    return { time = "O(n)", is_call = true }
+  end
+  
+  -- memset, memcpy -> O(n)
+  if line:match("memset%s*%(") or line:match("memcpy%s*%(")
+  then
+    return { time = "O(n)", is_call = true }
+  end
+  
+  -- pow, sqrt, log, exp -> O(1) or O(log n)
+  if line:match("pow%s*%(") or line:match("sqrt%s*%(") or
+     line:match("log%s*%(") or line:match("exp%s*%(")
+  then
+    return { time = "O(1)", is_call = true }
+  end
+  
+  -- KMP, Z-algorithm (if custom implementation detected)
+  if line:match("kmp%s*%(") or line:match("z_algorithm%s*%(")
+  then
+    return { time = "O(n)", is_call = true }
+  end
+  
+  -- Sieve of Eratosthenes
+  if line:match("sieve%s*%(") then
+    return { time = "O(n log log n)", is_call = true }
+  end
+  
+  -- Matrix operations
+  if line:match("multiply_matrix%s*%(") or line:match("matmul%s*%(")
+  then
+    return { time = "O(n³)", is_call = true }
+  end
+  
+  -- DFS/BFS (graph traversal)
+  if line:match("dfs%s*%(") or line:match("bfs%s*%(")
+  then
+    return { time = "O(V+E)", is_call = true }
+  end
+  
+  -- Dijkstra
+  if line:match("dijkstra%s*%(")
+  then
+    return { time = "O(E log V)", is_call = true }
+  end
+  
+  -- Floyd-Warshall
+  if line:match("floyd%s*%(") or line:match("warshall%s*%(")
+  then
+    return { time = "O(n³)", is_call = true }
+  end
+  
+  -- Bellman-Ford
+  if line:match("bellman%s*%(") then
+    return { time = "O(V×E)", is_call = true }
+  end
+  
+  -- Union-Find / DSU operations
+  if line:match("%.find_set%s*%(") or line:match("%.union_set%s*%(") or
+     line:match("find_parent%s*%(") or line:match("unite%s*%(")
+  then
+    return { time = "O(α(n))", is_call = true }
+  end
+  
+  -- Segment tree / Fenwick tree operations
+  if line:match("%.query%s*%(") or line:match("%.update%s*%(") or
+     line:match("segment_tree") or line:match("fenwick%s*%(")
+  then
+    return { time = "O(log n)", is_call = true }
+  end
+  
+  -- Trie operations
+  if line:match("trie") and (line:match("%.insert%s*%(") or line:match("%.search%s*%(")
+  ) then
+    return { time = "O(L)", is_call = true }
+  end
+  
+  -- next() iterator operation
+  if line:match("next%s*%(") or line:match("prev%s*%(")
+  then
+    return { time = "O(1)", is_call = true }
   end
   
   return nil
@@ -117,8 +312,18 @@ local function analyze_space(lines)
   
   for i, line in ipairs(lines) do
     -- Vector/array declarations: vector<int> v(n), int arr[n]
-    if line:match("vector%s*<") or line:match("int%s+%w+%s*%[") or 
-       line:match("long%s+long%s+%w+%s*%[") or line:match("string%s+%w+%s*%[") then
+    if line:match("vector%s*<") or 
+       line:match("int%s+%w+%s*%[") or 
+       line:match("long%s+long%s+%w+%s*%[") or 
+       line:match("string%s+%w+%s*%[") or
+       line:match("set%s*<") or
+       line:match("map%s*<") or
+       line:match("unordered_set%s*<") or
+       line:match("unordered_map%s*<") or
+       line:match("priority_queue%s*<") or
+       line:match("queue%s*<") or
+       line:match("stack%s*<") or
+       line:match("deque%s*<") then
       
       -- Try to detect size
       local size = line:match("%[%s*(%w+)%s*%]") or line:match("%((%w+)%)")
@@ -133,21 +338,35 @@ local function analyze_space(lines)
       end
     end
     
-    -- 2D arrays/vectors
+    -- 2D arrays/vectors/maps
     if line:match("vector%s*<.*vector%s*<") or 
+       line:match("map%s*<.*vector%s*<") or
        line:match("%[%s*%w+%s*%]%s*%[%s*%w+%s*%]") then
       table.insert(space_items, { line = i, complexity = "O(n²)" })
     end
+    
+    -- Segment tree, Fenwick tree (typically O(n))
+    if line:match("segment_tree") or line:match("fenwick") or line:match("bit%s*%[")
+    then
+      table.insert(space_items, { line = i, complexity = "O(n)" })
+    end
+    
+    -- DSU/Union-Find parent array
+    if line:match("parent%s*%[") or line:match("rank%s*%[") then
+      table.insert(space_items, { line = i, complexity = "O(n)" })
+    end
+    
+    -- Adjacency list for graphs
+    if line:match("vector%s*<.*>%s+adj%s*%[") or line:match("graph%s*%[")
+    then
+      table.insert(space_items, { line = i, complexity = "O(V+E)" })
+    end
   end
   
-  -- Calculate overall space
+  -- Calculate overall space - take the maximum
   local max_space = "O(1)"
   for _, item in ipairs(space_items) do
-    if item.complexity == "O(n²)" then
-      max_space = "O(n²)"
-    elseif item.complexity == "O(n)" and max_space ~= "O(n²)" then
-      max_space = "O(n)"
-    end
+    max_space = get_dominant_complexity(max_space, item.complexity)
   end
   
   return max_space, space_items
@@ -166,9 +385,8 @@ function M.analyze(bufnr)
     overall_time = "O(1)", -- Overall time complexity
   }
   
-  -- Track nesting level
+  -- Track nesting level and current context
   local nesting_stack = {}
-  local current_complexity = "O(1)"
   
   -- Analyze space first
   results.space, results.space_items = analyze_space(lines)
@@ -182,22 +400,22 @@ function M.analyze(bufnr)
       
       -- Detect loops
       local loop_type = nil
-      local complexity = "O(1)"
+      local base_complexity = "O(1)"
       
       if trimmed:match("^for%s*%(") then
         loop_type = "for"
-        complexity = analyze_for_loop(trimmed)
+        base_complexity = analyze_for_loop(trimmed)
       elseif trimmed:match("^while%s*%(") then
         loop_type = "while"
-        complexity = analyze_while_loop(trimmed)
+        base_complexity = analyze_while_loop(trimmed)
       elseif trimmed:match("^do%s*{") or trimmed:match("^do%s*$") then
         loop_type = "do"
-        complexity = "O(n)"
+        base_complexity = "O(n)"
       end
       
       if loop_type then
         -- Calculate effective complexity with nesting
-        local effective = complexity
+        local effective = base_complexity
         for _, parent_complexity in ipairs(nesting_stack) do
           effective = multiply_complexity(parent_complexity, effective)
         end
@@ -205,16 +423,16 @@ function M.analyze(bufnr)
         table.insert(results.loops, {
           line = i,
           complexity = effective,
-          base_complexity = complexity,
+          base_complexity = base_complexity,
           nesting_level = #nesting_stack,
         })
         
         -- Push to stack
-        table.insert(nesting_stack, complexity)
+        table.insert(nesting_stack, base_complexity)
         
-        -- Update overall time complexity
+        -- Update overall time complexity - compare and take dominant
         if effective ~= "O(1)" then
-          results.overall_time = effective
+          results.overall_time = get_dominant_complexity(results.overall_time, effective)
         end
       end
       
@@ -226,10 +444,26 @@ function M.analyze(bufnr)
       -- Detect function calls
       local func_analysis = analyze_function_call(trimmed)
       if func_analysis then
+        -- Calculate effective complexity considering current nesting
+        local call_base_complexity = func_analysis.time
+        local effective_call_complexity = call_base_complexity
+        
+        -- If we're inside loops, multiply the function call complexity
+        for _, parent_complexity in ipairs(nesting_stack) do
+          effective_call_complexity = multiply_complexity(parent_complexity, effective_call_complexity)
+        end
+        
         table.insert(results.function_calls, {
           line = i,
-          complexity = func_analysis.time,
+          complexity = effective_call_complexity,
+          base_complexity = call_base_complexity,
+          nesting_level = #nesting_stack,
         })
+        
+        -- Update overall time complexity with effective function call complexity
+        if effective_call_complexity ~= "O(1)" then
+          results.overall_time = get_dominant_complexity(results.overall_time, effective_call_complexity)
+        end
       end
     end
   end

@@ -2,6 +2,8 @@
 
 local M = {}
 
+M.version = "1.1.0"
+
 local analyzer = require("timesense.analyzer")
 local display = require("timesense.display")
 local config = require("timesense.config")

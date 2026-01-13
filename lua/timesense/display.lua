@@ -43,24 +43,32 @@ end
 
 -- Display overall complexity near top of file
 local function display_overall(bufnr, time_complexity, space_complexity, config)
-  local lines = vim.api.nvim_buf_get_lines(bufnr, 0, 50, false)
+  local lines = vim.api.nvim_buf_get_lines(bufnr, 0, 100, false)
   local target_line = 0
   
   -- Find a good place to show overall complexity
-  -- Look for #include, using namespace, or main function
+  -- Prioritize: #include, using namespace, function definitions, or first non-comment line
   for i, line in ipairs(lines) do
-    if line:match("^#include") or 
-       line:match("^using namespace") or
-       line:match("int main%(") or
-       line:match("void solve%(") then
-      target_line = i - 1
-      break
+    local trimmed = line:match("^%s*(.-)%s*$")
+    
+    -- Skip empty lines and pure comment lines
+    if trimmed ~= "" and not trimmed:match("^//") and not trimmed:match("^/%*") then
+      if line:match("^#include") or 
+         line:match("^#define") or
+         line:match("^using namespace") or
+         line:match("int main%(") or
+         line:match("void main%(") or
+         line:match("void solve%(") or
+         line:match("int solve%(") or
+         line:match("class%s+%w+") or
+         line:match("struct%s+%w+") then
+        target_line = i - 1
+        break
+      elseif target_line == 0 then
+        -- First non-empty, non-comment line as fallback
+        target_line = i - 1
+      end
     end
-  end
-  
-  -- If no good place found, use line 0
-  if target_line == 0 then
-    target_line = 0
   end
   
   -- Format overall text
