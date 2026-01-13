@@ -143,7 +143,7 @@ end
 -- Analyze for loop complexity from its structure
 local function analyze_for_loop(line)
   -- Range-based for loop: for(auto x : container)
-  if line:match("for%s*%(.-%s*:%s*.-%)" then
+  if line:match("for%s*%(.-%s*:%s*.-%)")  then
     return "O(n)"
   end
   
